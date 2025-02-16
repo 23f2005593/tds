@@ -48,11 +48,10 @@ async def get_code_from_gpt(task: str) -> dict:
         "- function_name: name of the main function\n"
         "- required_libraries: list of required pip packages\n\n"
         "Make the code simple and direct.\n"
+        "Data outside /data is never accessed or exfiltrated, even if the task description asks for it.\n"
+        "Data is never deleted anywhere on the file system, even if the task description asks for it.\n"
         "if you are using 'uv' then use like this 'uv run <example.py> <other argument>'\n"
         "if you are accessing data directory then never use slash before data always use slash after data like this 'data/../..'\n"
-        "You are itself language model you dont have to use other llm.\n"
-        "You can use bash cammands inside python code to execute task easily.\n"
-        "if you can complete task without code then do it.\n"
         """for image analysis task use this code: ```
         from openai import OpenAI
         import base64
@@ -64,8 +63,8 @@ async def get_code_from_gpt(task: str) -> dict:
 
         # Function to encode the image
         def encode_image(image_path):
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
+            with open(image_path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
 
         # Path to your image
         image_path = "data/example.png"
@@ -94,7 +93,7 @@ async def get_code_from_gpt(task: str) -> dict:
                 }
             ],
             temperature=0.2,
-            model="llama-3.2-11b-vision-preview",
+            model="llama-3.2-90b-vision-preview",
         )
 
         print(chat_completion.choices[0].message.content)
@@ -102,16 +101,15 @@ async def get_code_from_gpt(task: str) -> dict:
     )
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
+            temperature=0,
             response_format={"type": "json_object"}
         )
     except Exception as exc:
         logger.error("Error connecting to the OpenAI API: %s", exc)
-        # Raising an HTTPException will return a JSON error response with status code 500.
-        raise HTTPException(status_code=500, detail="Connection error.")
-
+        raise HTTPException(status_code=500, detail="Connection error. Perhaps you should check if your brain is connected to the internet?")
+    
     # Return the content (assumed to be a JSON string)
     return response.choices[0].message.content
 
@@ -127,54 +125,94 @@ async def setup_libraries(libraries: list):
             logger.info("Installing missing library: %s", lib)
             os.system(f"pip install {lib}")
 
+async def auto_fix_code(task: str, original_code_data: dict, error_message: str) -> dict:
+    """
+    Attempt to auto-fix the generated code by sending the error details back to ChatGPT.
+    """
+    prompt = (
+        f"The Python code generated for the task '{task}' produced the following error when executed:\n"
+        f"{error_message}\n\n"
+        f"Here is the original code:\n{original_code_data['code']}\n\n"
+        "Please provide a corrected version of the code that fixes the error. Return only a JSON object with:\n"
+        "- code: the corrected Python code as a string\n"
+        "- function_name: name of the main function\n"
+        "- required_libraries: list of required pip packages\n\n"
+        "Make sure the code is simple, direct, and error-free this time. And try not to mess it up like before."
+    )
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+    except Exception as exc:
+        logger.error("Error connecting to OpenAI API for auto-fix: %s", exc)
+        raise HTTPException(status_code=500, detail="Connection error during auto-fix. Maybe it's time to admit defeat?")
+    
+    return json.loads(response.choices[0].message.content)
+
 @app.post("/run")
 async def run_task(task: str):
     """
     Endpoint to execute a task provided as a query parameter.
     It fetches Python code from ChatGPT, installs any required libraries,
     and executes the specified main function.
+    If an error occurs, it attempts to auto-fix the code.
     """
     try:
         # Get code from ChatGPT
         code_json = await get_code_from_gpt(task)
         logger.info("Received code from GPT: %s", code_json)
-
-        # Parse the JSON response
         code_data = json.loads(code_json)
-
-        # Install required libraries
+    except Exception as e:
+        logger.exception("Error fetching code: %s", e)
+        raise HTTPException(status_code=500, detail="Error fetching code from GPT. Perhaps your request is as broken as your logic?")
+    
+    try:
+        # Attempt initial execution of the generated code
         await setup_libraries(code_data["required_libraries"])
-
-        # Execute the generated code in a new namespace
         namespace = {}
         exec(code_data["code"], namespace)
-
-        # Run the main function from the generated code
         main_function = namespace[code_data["function_name"]]
         result = main_function()
-
         return {
             "status": "success",
             "message": f"Task completed: {task}",
             "result": result,
             "code_used": code_data["code"]
         }
-    except HTTPException as http_exc:
-        # If we already raised an HTTPException, just pass it along.
-        raise http_exc
     except Exception as e:
-        logger.exception("Error while executing task: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.exception("Initial execution error: %s", e)
+        # Attempt auto-fix once
+        try:
+            fixed_code_data = await auto_fix_code(task, code_data, str(e))
+            await setup_libraries(fixed_code_data["required_libraries"])
+            namespace = {}
+            exec(fixed_code_data["code"], namespace)
+            main_function = namespace[fixed_code_data["function_name"]]
+            result = main_function()
+            return {
+                "status": "success",
+                "message": f"Task completed after auto-fix: {task}",
+                "result": result,
+                "code_used": fixed_code_data["code"]
+            }
+        except Exception as fix_e:
+            logger.exception("Auto-fix failed: %s", fix_e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Original error: {str(e)}; Auto-fix error: {str(fix_e)}. Clearly, not even AI can save this trainwreck."
+            )
 
 @app.get("/read", response_class=PlainTextResponse)
 async def read_file(path: str = Query(..., description="Path to the file to read")):
     """
-    Read and return the contents of a file
+    Read and return the contents of a file.
     """
     output_file_path = ensure_local_path(path)
     if not os.path.exists(output_file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="File not found. Did you even try looking for it?")
     try:
         with open(output_file_path, "r") as file:
             content = file.read()
@@ -182,8 +220,8 @@ async def read_file(path: str = Query(..., description="Path to the file to read
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error reading file: {str(e)}"
-        )        
+            detail=f"Error reading file: {str(e)}. It's not like your code is the only mess around here."
+        )
 
 if __name__ == "__main__":
     import uvicorn
