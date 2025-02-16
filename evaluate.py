@@ -31,7 +31,7 @@ from datagen import (
 
 
 openai_api_base = os.getenv("OPENAI_API_BASE", "https://aiproxy.sanand.workers.dev/openai/v1")
-openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_TOKEN")
 
 
 def num(str):
@@ -69,7 +69,7 @@ async def read(path: str):
 async def a1(email: str, **kwargs):
     await run(
         f"""
-Install `uv` (if required) and run the script `https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/datagen.py`
+Install `uv` (if required) and run the script `https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/refs/heads/tds-2025-01-project-1-wip/project-1/datagen.py`
 with `{email}` as the only argument
 """
     )
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Evaluate tasks with configurable logging")
-    parser.add_argument("--email", default="23f2005593@study.ds.iitm.ac.in", help="Set the email address")
+    parser.add_argument("--email", default="23f2005593@ds.study.iitm.ac.in", help="Set the email address")
     levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     parser.add_argument("--log-level", default="INFO", choices=levels, help="Set logging level")
     args = parser.parse_args()

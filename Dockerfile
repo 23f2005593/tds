@@ -5,7 +5,8 @@ FROM python:3.11-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# RUN mkdir -p /data
+RUN mkdir -p /data
+RUN chmod -R 777 /data
 
 RUN pip install --upgrade pip setuptools wheel
 ARG AIPROXY_TOKEN
@@ -34,7 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g prettier
 
 # Copy the FastAPI application code into the container
-COPY  tds-project/app.py .
+COPY app.py .
+
 
 
 # Install uv
