@@ -1,0 +1,9 @@
+fastapi
+uv
+uvicorn
+openai
+python-dotenv
+Pillow
+faker
+tesseract
+pytesseract
