@@ -93,7 +93,7 @@ async def get_code_from_gpt(task: str) -> dict:
                 }
             ],
             temperature=0.2,
-            model="llama-3.2-90b-vision-preview",
+            model="gpt-4o-mini",
         )
 
         print(chat_completion.choices[0].message.content)
@@ -141,7 +141,7 @@ async def auto_fix_code(task: str, original_code_data: dict, error_message: str)
     )
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             response_format={"type": "json_object"}
